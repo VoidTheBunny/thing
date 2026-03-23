@@ -6,6 +6,7 @@ const Lineup = @import("../services/lineup.zig");
 const ConfigManager = @import("config_mgr.zig");
 const Logic = @import("../utils/logic.zig");
 const AvatarConfig = @import("../data/avatar_config.zig");
+const AvatarManager = @import("avatar_mgr.zig");
 
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
@@ -69,13 +70,29 @@ fn createBattleAvatar(allocator: Allocator, avatarConf: Config.Avatar) !protocol
         try avatar.relic_list.append(r);
     }
 
-    const lc = protocol.BattleEquipment{
-        .id = avatarConf.lightcone.id,
-        .rank = avatarConf.lightcone.rank,
-        .level = avatarConf.lightcone.level,
-        .promotion = avatarConf.lightcone.promotion,
-    };
-    try avatar.equipment_list.append(lc);
+    // Check equipment store for an actually equipped lightcone
+    var found_equipped = false;
+    for (AvatarManager.equipment_store[0..AvatarManager.equipment_count]) |eq| {
+        if (eq.dress_avatar_id == avatarConf.id and eq.unique_id != 0 and eq.tid != 0) {
+            try avatar.equipment_list.append(.{
+                .id = eq.tid,
+                .rank = eq.rank,
+                .level = eq.level,
+                .promotion = eq.promotion,
+            });
+            found_equipped = true;
+            break;
+        }
+    }
+    // Fall back to config preset lightcone if nothing equipped from store
+    if (!found_equipped and avatarConf.lightcone.id != 0) {
+        try avatar.equipment_list.append(.{
+            .id = avatarConf.lightcone.id,
+            .rank = avatarConf.lightcone.rank,
+            .level = avatarConf.lightcone.level,
+            .promotion = avatarConf.lightcone.promotion,
+        });
+    }
 
     for (skill_config.avatar_skill_tree_config.items) |skill| {
         if (skill.avatar_id == avatar.id) {

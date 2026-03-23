@@ -43,37 +43,6 @@ pub fn onGetAvatarData(session: *Session, packet: *const Packet, allocator: Allo
     try session.send(CmdID.CmdGetAvatarDataScRsp, rsp);
 }
 
-// Equipment store - tracks all created equipment by unique_id
-const MAX_EQUIPMENT: usize = 1024;
-pub var equipment_store: [MAX_EQUIPMENT]protocol.Equipment = [_]protocol.Equipment{.{}} ** MAX_EQUIPMENT;
-pub var equipment_count: usize = 0;
-
-pub fn storeEquipment(eq: protocol.Equipment) void {
-    // Check if already stored (update existing)
-    for (equipment_store[0..equipment_count]) |*stored| {
-        if (stored.unique_id == eq.unique_id) {
-            stored.* = eq;
-            return;
-        }
-    }
-    // Add new
-    if (equipment_count < MAX_EQUIPMENT) {
-        equipment_store[equipment_count] = eq;
-        equipment_count += 1;
-    }
-}
-
-pub fn findEquipment(unique_id: u32) ?*protocol.Equipment {
-    for (equipment_store[0..equipment_count]) |*eq| {
-        if (eq.unique_id == unique_id) return eq;
-    }
-    return null;
-}
-
-pub fn clearEquipmentStore() void {
-    equipment_count = 0;
-}
-
 pub fn onGetBasicInfo(session: *Session, _: *const Packet, allocator: Allocator) !void {
     var rsp = protocol.GetBasicInfoScRsp.init(allocator);
     rsp.gender = 2;
@@ -194,6 +163,15 @@ pub fn onDressAvatar(session: *Session, packet: *const Packet, allocator: Alloca
     const req = try packet.getProto(protocol.DressAvatarCsReq, allocator);
     defer req.deinit();
 
+    // Unequip any lightcone currently on the target avatar
+    for (AvatarManager.equipment_store[0..AvatarManager.equipment_count]) |*eq| {
+        if (eq.dress_avatar_id == req.avatar_id) {
+            eq.dress_avatar_id = 0;
+            break;
+        }
+    }
+
+    // Equip the new lightcone on the target avatar
     if (AvatarManager.findEquipment(req.equipment_unique_id)) |eq| {
         eq.dress_avatar_id = req.avatar_id;
     }
@@ -213,13 +191,12 @@ pub fn onTakeOffEquipment(session: *Session, packet: *const Packet, allocator: A
     for (AvatarManager.equipment_store[0..AvatarManager.equipment_count]) |*eq| {
         if (eq.dress_avatar_id == req.avatar_id) {
             eq.dress_avatar_id = 0;
-
-            var sync = protocol.PlayerSyncScNotify.init(allocator);
-            try sync.equipment_list.append(eq.*);
-            try session.send(CmdID.CmdPlayerSyncScNotify, sync);
             break;
         }
     }
+
+    // Sync avatar data so the avatar reflects having no lightcone
+    try AvatarManager.syncAvatarData(session, allocator);
 
     try session.send(CmdID.CmdTakeOffEquipmentScRsp, protocol.TakeOffEquipmentScRsp{
         .retcode = 0,
