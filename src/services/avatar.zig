@@ -176,6 +176,15 @@ pub fn onDressAvatar(session: *Session, packet: *const Packet, allocator: Alloca
         eq.dress_avatar_id = req.avatar_id;
     }
 
+    // Sync equipment state back to client
+    var sync = protocol.PlayerSyncScNotify.init(allocator);
+    for (AvatarManager.equipment_store[0..AvatarManager.equipment_count]) |eq| {
+        if (eq.unique_id != 0) {
+            try sync.equipment_list.append(eq);
+        }
+    }
+    try session.send(CmdID.CmdPlayerSyncScNotify, sync);
+
     try AvatarManager.syncAvatarData(session, allocator);
 
     try session.send(CmdID.CmdDressAvatarScRsp, protocol.DressAvatarScRsp{
@@ -191,6 +200,11 @@ pub fn onTakeOffEquipment(session: *Session, packet: *const Packet, allocator: A
     for (AvatarManager.equipment_store[0..AvatarManager.equipment_count]) |*eq| {
         if (eq.dress_avatar_id == req.avatar_id) {
             eq.dress_avatar_id = 0;
+
+            // Sync equipment state back to client
+            var sync = protocol.PlayerSyncScNotify.init(allocator);
+            try sync.equipment_list.append(eq.*);
+            try session.send(CmdID.CmdPlayerSyncScNotify, sync);
             break;
         }
     }
